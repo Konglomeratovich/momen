@@ -5,6 +5,8 @@ target="${PODKOP_TARGET:-/usr/bin/podkop}"
 constants="${PODKOP_CONSTANTS:-/usr/lib/podkop/constants.sh}"
 backup_dir="${PODKOP_BACKUP_DIR:-/root}"
 podkop_config="${PODKOP_CONFIG_FILE:-/etc/config/podkop}"
+openwrt_release_file="${PODKOP_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
+os_release_file="${PODKOP_OS_RELEASE_FILE:-/etc/os-release}"
 direct_section="${PODKOP_DIRECT_SECTION:-DIRECT}"
 needle='config=$(sing_box_cm_patch_dns_route_rule "$config" "$SB_FAKEIP_DNS_RULE_TAG" "rule_set" "$ruleset_tag")'
 guard='if [ "$route_rule_tag" != "$SB_EXCLUSION_RULE_TAG" ]; then'
@@ -137,11 +139,20 @@ if [ "${PODKOP_SKIP_RELOAD:-0}" != '1' ]; then
 fi
 
 if [ "${PODKOP_SKIP_PLATFORM_CHECK:-0}" != "1" ]; then
-    test -f /etc/openwrt_release
+    if [ ! -f "$openwrt_release_file" ]; then
+        echo "ERROR: OpenWrt release metadata is unavailable: $openwrt_release_file" >&2
+        exit 1
+    fi
     # shellcheck disable=SC1091
-    . /etc/openwrt_release
-    if [ "${DISTRIB_ID:-}" != 'OpenWrt' ]; then
-        echo "ERROR: this installer requires OpenWrt" >&2
+    . "$openwrt_release_file"
+    os_release_id=''
+    os_release_name=''
+    if [ -f "$os_release_file" ]; then
+        os_release_id="$(. "$os_release_file"; printf '%s' "${ID:-}")"
+        os_release_name="$(. "$os_release_file"; printf '%s' "${NAME:-}")"
+    fi
+    if [ "${DISTRIB_ID:-}" != 'OpenWrt' ] && [ "$os_release_id" != 'openwrt' ]; then
+        echo "ERROR: this installer requires OpenWrt-compatible firmware (DISTRIB_ID=${DISTRIB_ID:-unknown}, ID=${os_release_id:-unknown})" >&2
         exit 1
     fi
     openwrt_major="${DISTRIB_RELEASE%%.*}"
@@ -164,6 +175,8 @@ if [ "${PODKOP_SKIP_PLATFORM_CHECK:-0}" != "1" ]; then
         echo "ERROR: at least 25 MiB free space is required (available_kb=${available_kb:-unknown})" >&2
         exit 1
     fi
+    echo "OPENWRT_DISTRIBUTION=${DISTRIB_ID:-${os_release_name:-OpenWrt}}"
+    echo "OPENWRT_COMPATIBILITY_ID=${os_release_id:-openwrt}"
     echo "OPENWRT_VERSION=${DISTRIB_RELEASE}"
     echo "FREE_SPACE_KB=$available_kb"
 fi
