@@ -525,9 +525,16 @@ runtime_config="$(mktemp)"
 if ! /usr/bin/podkop show_sing_box_config | sed -n '/^{/,$p' > "$runtime_config"; then
     post_apply_failure 'cannot read generated sing-box configuration'
 fi
-jq -e --arg tag "$direct_section-user-domains-ruleset" '
-    .route.rules[] | select(.outbound == "direct-out") | (.rule_set // []) | index($tag)
-' "$runtime_config" >/dev/null || post_apply_failure 'DIRECT ruleset is not routed to direct-out'
+if ! jq -e --arg tag "$direct_section-user-domains-ruleset" '
+    any(.route.rules[]?;
+        .outbound == "direct-out"
+        and (((.rule_set // []) | index($tag)) != null)
+    )
+' "$runtime_config" >/dev/null; then
+    jq '[.route.rules[]? | select(.outbound == "direct-out") | {action, inbound, outbound, rule_set}]' \
+        "$runtime_config" >&2 || true
+    post_apply_failure 'DIRECT ruleset is not routed to direct-out'
+fi
 if jq -e --arg tag "$direct_section-user-domains-ruleset" '
     .dns.rules[] | select((.rule_set // []) | index($tag))
 ' "$runtime_config" >/dev/null; then
