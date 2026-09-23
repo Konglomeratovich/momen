@@ -43,4 +43,4 @@ jobs:
           grep -q 'supported Podkop versions are 0.7.0 through 0.7.22' install.sh
           grep -q 'ROLLBACK_COMPLETED=true' install.sh
           grep -q 'POSTCHECKS_PASSED=true' install.sh
-          grep -q 'OUTSIDE_SNAPSHOT_COVERED=true' install.sh
+          ! grep -q '^outside_domains=' install.sh

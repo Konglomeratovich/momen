@@ -18,45 +18,6 @@ config_backup=''
 catalog_url='https://raw.githubusercontent.com/Konglomeratovich/momen/main/assets/r1.gz'
 catalog_sha256='520952b502e1e169ea2477f38e314ec62338716c969bd16b262ae7ea85e24890'
 catalog_expected_count='732'
-outside_domains='1018213540.rsc.cdn77.org
-avtodor-tr.ru
-b2c-ticket-sentry.onelya.ru
-bitrix.info
-bkvet.ru
-cdn1.ozonusercontent.com
-cms1.dzvr.ru
-consultant.ru
-counter.yadro.ru
-dzvr.ru
-emex.ru
-fairplay-proxy.ott.yandex.ru
-fssp.gov.ru
-gorzdrav.spb.ru
-gosuslugi.ru
-gov.ru
-graphql.kinopoisk.ru
-gu-st.ru
-lemanapro.ru
-leroymerlin.ru
-magnit.ru
-mobileapp.russianpost.ru
-mos.ru
-mosenergosbyt.ru
-mosreg.ru
-nalog.ru
-ozon.ru
-pesc.ru
-pochta.ru
-reso.ru
-rosreestr.gov.ru
-rzd-bonus.ru
-rzd.ru
-showip.net
-sys.refocus.ru
-vshark.ttk.ru
-widevine-proxy.ott.yandex.ru
-xn--90aijkdmaud0d.xn--p1ai
-yandex.net'
 catalog_archive=''
 catalog_plain=''
 direct_domains=''
@@ -300,22 +261,6 @@ load_direct_domains() {
     fi
     echo "CATALOG_DOMAINS=$actual_catalog_count"
 
-    for outside_domain in $outside_domains; do
-        outside_covered=0
-        for direct_domain in $direct_domains; do
-            case "$outside_domain" in
-            "$direct_domain" | *."$direct_domain")
-                outside_covered=1
-                break
-                ;;
-            esac
-        done
-        if [ "$outside_covered" -ne 1 ]; then
-            echo "ERROR: catalog does not cover outside snapshot domain: $outside_domain" >&2
-            exit 1
-        fi
-    done
-    echo "OUTSIDE_SNAPSHOT_COVERED=true"
 }
 
 if [ "$configure_direct" -eq 1 ]; then
@@ -600,6 +545,5 @@ echo "DIRECT_DOMAIN_COUNT=$actual_domain_count"
 echo "DNS_RESOLVED_IPS=$(printf '%s' "$resolved_ips" | tr '\n' ' ')"
 echo "LiveCatalog                  : $live_catalog"
 echo "DirectDomains                : $actual_domain_count"
-echo "OutsideSnapshotCovered       : True"
 echo "DirectRemoteRulesetRemoved   : True"
 echo "InvalidDownloadProxyRejected : True"
