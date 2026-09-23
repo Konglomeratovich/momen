@@ -1,0 +1,44 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  distribution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check ash syntax
+        run: |
+          docker run --rm \
+            --mount "type=bind,src=$PWD,dst=/work,readonly" \
+            alpine:3.22 ash -n /work/install.sh
+
+      - name: Verify pinned catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_hash="$(sed -n "s/^catalog_sha256='\([^']*\)'/\1/p" install.sh)"
+          expected_count="$(sed -n "s/^catalog_expected_count='\([^']*\)'/\1/p" install.sh)"
+          actual_hash="$(sha256sum assets/r1.gz | awk '{print $1}')"
+          actual_count="$(gzip -dc assets/r1.gz | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
+          test "$actual_hash" = "$expected_hash"
+          test "$actual_count" = "$expected_count"
+          test "$actual_count" = '732'
+
+      - name: Verify safety controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'OpenWrt 24.10 or newer is required' install.sh
+          grep -q 'at least 25 MiB free space is required' install.sh
+          grep -q 'supported Podkop versions are 0.7.0 through 0.7.22' install.sh
+          grep -q 'ROLLBACK_COMPLETED=true' install.sh
+          grep -q 'POSTCHECKS_PASSED=true' install.sh
+          grep -q 'OUTSIDE_SNAPSHOT_COVERED=true' install.sh
