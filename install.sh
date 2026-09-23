@@ -181,14 +181,18 @@ if [ "${PODKOP_SKIP_PLATFORM_CHECK:-0}" != "1" ]; then
     echo "FREE_SPACE_KB=$available_kb"
 fi
 
-podkop_version="${PODKOP_TEST_VERSION:-$(sed -n 's/^PODKOP_VERSION="\([^"]*\)".*/\1/p' "$constants" | head -n 1)}"
-if [ "$podkop_version" = '__COMPILED_VERSION_VARIABLE__' ]; then
+podkop_version_raw="${PODKOP_TEST_VERSION:-$(sed -n 's/^PODKOP_VERSION="\([^"]*\)".*/\1/p' "$constants" | head -n 1)}"
+if [ "$podkop_version_raw" = '__COMPILED_VERSION_VARIABLE__' ]; then
     if [ "${PODKOP_ALLOW_UNCOMPILED:-0}" != '1' ]; then
         echo "ERROR: cannot determine installed Podkop version" >&2
         exit 1
     fi
-    podkop_version="${PODKOP_TEST_VERSION:-0.7.22}"
+    podkop_version_raw="${PODKOP_TEST_VERSION:-0.7.22}"
 fi
+case "$podkop_version_raw" in
+v0.7.*) podkop_version="${podkop_version_raw#v}" ;;
+*) podkop_version="$podkop_version_raw" ;;
+esac
 case "$podkop_version" in
 0.7.*)
     podkop_patch="${podkop_version#0.7.}"
@@ -209,6 +213,9 @@ case "$podkop_version" in
     exit 1
     ;;
 esac
+if [ "$podkop_version_raw" != "$podkop_version" ]; then
+    echo "PODKOP_VERSION_SOURCE=$podkop_version_raw"
+fi
 echo "PODKOP_VERSION=$podkop_version"
 
 if [ "$configure_download_proxy" -eq 1 ]; then
