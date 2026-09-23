@@ -8,6 +8,7 @@ podkop_config="${PODKOP_CONFIG_FILE:-/etc/config/podkop}"
 openwrt_release_file="${PODKOP_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
 os_release_file="${PODKOP_OS_RELEASE_FILE:-/etc/os-release}"
 direct_section="${PODKOP_DIRECT_SECTION:-DIRECT}"
+tld_list_file="${PODKOP_TLD_LIST_FILE:-/etc/momen-r1-cyrillic-tlds.lst}"
 needle='config=$(sing_box_cm_patch_dns_route_rule "$config" "$SB_FAKEIP_DNS_RULE_TAG" "rule_set" "$ruleset_tag")'
 guard='if [ "$route_rule_tag" != "$SB_EXCLUSION_RULE_TAG" ]; then'
 configure_yandex_doh=0
@@ -21,9 +22,13 @@ catalog_expected_count='724'
 catalog_archive=''
 catalog_plain=''
 direct_domains=''
+direct_text_domains=''
+tld_domains=''
 temporary=''
 runtime_config=''
 binary_backup=''
+tld_list_backup=''
+tld_list_created=0
 live_catalog=False
 
 cleanup() {
@@ -261,6 +266,41 @@ load_direct_domains() {
     fi
     echo "CATALOG_DOMAINS=$actual_catalog_count"
 
+    direct_text_domains=''
+    tld_domains=''
+    for direct_domain in $direct_domains; do
+        case "$direct_domain" in
+        xn--p1ai | xn--p1acf | xn--80adxhks | xn--d1acj3b)
+            if [ -z "$tld_domains" ]; then
+                tld_domains="$direct_domain"
+            else
+                tld_domains="$tld_domains
+$direct_domain"
+            fi
+            ;;
+        *)
+            if [ -z "$direct_text_domains" ]; then
+                direct_text_domains="$direct_domain"
+            else
+                direct_text_domains="$direct_text_domains
+$direct_domain"
+            fi
+            ;;
+        esac
+    done
+    tld_domain_count="$(printf '%s\n' "$tld_domains" | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
+    text_domain_count="$(printf '%s\n' "$direct_text_domains" | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
+    [ "$tld_domain_count" = '4' ] || {
+        echo "ERROR: catalog must contain all four Cyrillic TLD suffixes" >&2
+        exit 1
+    }
+    [ $((text_domain_count + tld_domain_count)) -eq "$catalog_expected_count" ] || {
+        echo "ERROR: catalog partition count mismatch" >&2
+        exit 1
+    }
+    echo "DIRECT_TEXT_DOMAINS=$text_domain_count"
+    echo "DIRECT_TLD_DOMAINS=$tld_domain_count"
+
 }
 
 if [ "$configure_direct" -eq 1 ]; then
@@ -295,6 +335,11 @@ rollback_after_failure() {
     if [ -n "$binary_backup" ] && [ -f "$binary_backup" ]; then
         cp -p "$binary_backup" "$target" || true
         chmod 0755 "$target" || true
+    fi
+    if [ -n "$tld_list_backup" ] && [ -f "$tld_list_backup" ]; then
+        cp -p "$tld_list_backup" "$tld_list_file" || true
+    elif [ "$tld_list_created" -eq 1 ]; then
+        rm -f "$tld_list_file" || true
     fi
     /etc/init.d/podkop restart >/dev/null 2>&1 || true
     echo "ROLLBACK_COMPLETED=true" >&2
@@ -428,7 +473,7 @@ if [ "$configure_direct" -eq 1 ]; then
     uci -q delete "podkop.$direct_section.remote_subnet_lists" || true
 
     expected_direct_domains=''
-    for direct_domain in $direct_domains; do
+    for direct_domain in $direct_text_domains; do
         if [ -z "$expected_direct_domains" ]; then
             expected_direct_domains="$direct_domain"
         else
@@ -437,6 +482,15 @@ $direct_domain"
         fi
     done
     uci set "podkop.$direct_section.user_domains_text=$expected_direct_domains"
+
+    if [ -e "$tld_list_file" ]; then
+        tld_list_backup="$(new_backup_path 'momen-r1-cyrillic-tlds.before-v3')"
+        cp -p "$tld_list_file" "$tld_list_backup"
+    else
+        tld_list_created=1
+    fi
+    printf '%s\n' "$tld_domains" > "$tld_list_file"
+    uci add_list "podkop.$direct_section.local_domain_lists=$tld_list_file"
 
     echo "DIRECT_CONFIGURED=true"
     echo "DIRECT_SECTION=$direct_section"
@@ -466,6 +520,8 @@ if [ "$configure_yandex_doh" -eq 1 ] || [ "$configure_direct" -eq 1 ] || [ "$con
         [ "$(uci -q get "podkop.$direct_section.user_domain_list_type")" = "text" ] || post_apply_failure 'DIRECT list type validation failed'
         [ -z "$(uci -q get "podkop.$direct_section.user_domains" || true)" ] || post_apply_failure 'legacy DIRECT domain list still exists'
         [ "$(uci -q get "podkop.$direct_section.user_domains_text")" = "$expected_direct_domains" ] || post_apply_failure 'DIRECT domain payload validation failed'
+        [ "$(uci -q get "podkop.$direct_section.local_domain_lists")" = "$tld_list_file" ] || post_apply_failure 'DIRECT Cyrillic TLD list path validation failed'
+        [ "$(sed '/^[[:space:]]*$/d' "$tld_list_file")" = "$tld_domains" ] || post_apply_failure 'DIRECT Cyrillic TLD payload validation failed'
     fi
 
     if [ "$configure_download_proxy" -eq 1 ]; then
@@ -496,7 +552,9 @@ printf '%s\n' "$sing_box_status" | grep -qi 'running' || post_apply_failure 'sin
 
 actual_list_type="$(uci -q get "podkop.$direct_section.user_domain_list_type" || true)"
 [ "$actual_list_type" = 'text' ] || post_apply_failure 'DIRECT user_domain_list_type is not text after reload'
-actual_domain_count="$(uci -q get "podkop.$direct_section.user_domains_text" | wc -w | tr -d '[:space:]')"
+actual_text_domain_count="$(uci -q get "podkop.$direct_section.user_domains_text" | wc -w | tr -d '[:space:]')"
+actual_tld_domain_count="$(sed '/^[[:space:]]*$/d' "$tld_list_file" | wc -l | tr -d '[:space:]')"
+actual_domain_count=$((actual_text_domain_count + actual_tld_domain_count))
 [ "$actual_domain_count" = "$catalog_expected_count" ] || post_apply_failure "DIRECT domain count mismatch after reload (expected=$catalog_expected_count actual=$actual_domain_count)"
 
 runtime_config="$(mktemp)"
@@ -512,6 +570,14 @@ if ! jq -e --arg tag "$direct_section-user-domains-ruleset" '
     jq '[.route.rules[]? | select(.outbound == "direct-out") | {action, inbound, outbound, rule_set}]' \
         "$runtime_config" >&2 || true
     post_apply_failure 'DIRECT ruleset is not routed to direct-out'
+fi
+if ! jq -e --arg tag "$direct_section-local-domains-ruleset" '
+    any(.route.rules[]?;
+        .outbound == "direct-out"
+        and (((.rule_set // []) | index($tag)) != null)
+    )
+' "$runtime_config" >/dev/null; then
+    post_apply_failure 'DIRECT Cyrillic TLD ruleset is not routed to direct-out'
 fi
 if jq -e --arg tag "$direct_section-user-domains-ruleset" '
     .dns.rules[] | select((.rule_set // []) | index($tag))
@@ -541,6 +607,8 @@ fi
 echo "SERVICE_RESTARTED=true"
 echo "POSTCHECKS_PASSED=true"
 echo "DIRECT_LIST_TYPE=$actual_list_type"
+echo "DIRECT_TEXT_DOMAIN_COUNT=$actual_text_domain_count"
+echo "DIRECT_TLD_DOMAIN_COUNT=$actual_tld_domain_count"
 echo "DIRECT_DOMAIN_COUNT=$actual_domain_count"
 echo "DNS_RESOLVED_IPS=$(printf '%s' "$resolved_ips" | tr '\n' ' ')"
 echo "LiveCatalog                  : $live_catalog"
