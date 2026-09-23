@@ -171,13 +171,26 @@ if [ "${PODKOP_SKIP_PLATFORM_CHECK:-0}" != "1" ]; then
     filesystem_path='/'
     [ ! -d /overlay ] || filesystem_path='/overlay'
     available_kb="$(df -Pk "$filesystem_path" | awk 'NR == 2 { print $4 }')"
-    if [ -z "$available_kb" ] || [ "$available_kb" -lt 25600 ]; then
-        echo "ERROR: at least 25 MiB free space is required (available_kb=${available_kb:-unknown})" >&2
+    target_size_bytes="$(wc -c < "$target" | tr -d '[:space:]')"
+    target_size_kb=$(((target_size_bytes + 1023) / 1024))
+    config_size_kb=0
+    if [ -f "$podkop_config" ]; then
+        config_size_bytes="$(wc -c < "$podkop_config" | tr -d '[:space:]')"
+        config_size_kb=$(((config_size_bytes + 1023) / 1024))
+    fi
+    estimated_write_kb=$((target_size_kb * 4 + config_size_kb * 6 + 2048))
+    retained_reserve_kb=12288
+    required_free_kb=$((estimated_write_kb + retained_reserve_kb))
+    if [ -z "$available_kb" ] || [ "$available_kb" -lt "$required_free_kb" ]; then
+        echo "ERROR: insufficient free space (required_kb=$required_free_kb, available_kb=${available_kb:-unknown}, retained_reserve_kb=$retained_reserve_kb)" >&2
         exit 1
     fi
     echo "OPENWRT_DISTRIBUTION=${DISTRIB_ID:-${os_release_name:-OpenWrt}}"
     echo "OPENWRT_COMPATIBILITY_ID=${os_release_id:-openwrt}"
     echo "OPENWRT_VERSION=${DISTRIB_RELEASE}"
+    echo "INSTALL_ESTIMATED_WRITE_KB=$estimated_write_kb"
+    echo "RETAINED_FREE_RESERVE_KB=$retained_reserve_kb"
+    echo "REQUIRED_FREE_SPACE_KB=$required_free_kb"
     echo "FREE_SPACE_KB=$available_kb"
 fi
 

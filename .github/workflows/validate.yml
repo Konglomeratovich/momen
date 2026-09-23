@@ -38,7 +38,8 @@ jobs:
           set -euo pipefail
           grep -q 'OpenWrt 24.10 or newer is required' install.sh
           grep -q 'OPENWRT_COMPATIBILITY_ID=' install.sh
-          grep -q 'at least 25 MiB free space is required' install.sh
+          grep -q 'RETAINED_FREE_RESERVE_KB=' install.sh
+          grep -q 'retained_reserve_kb=12288' install.sh
           grep -q 'supported Podkop versions are 0.7.0 through 0.7.22' install.sh
           grep -q 'ROLLBACK_COMPLETED=true' install.sh
           grep -q 'POSTCHECKS_PASSED=true' install.sh
