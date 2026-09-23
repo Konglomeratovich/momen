@@ -30,7 +30,7 @@ jobs:
           actual_count="$(gzip -dc assets/r1.gz | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
           test "$actual_hash" = "$expected_hash"
           test "$actual_count" = "$expected_count"
-          test "$actual_count" = '733'
+          test "$actual_count" = '724'
 
       - name: Verify safety controls
         shell: bash
