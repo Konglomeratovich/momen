@@ -1,0 +1,75 @@
+name: happ-routing
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "happ/**"
+      - ".github/workflows/happ-routing.yml"
+  pull_request:
+    paths:
+      - "happ/**"
+      - ".github/workflows/happ-routing.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate and test HAPP profile
+        run: |
+          python happ/build.py
+          python -m unittest discover -s happ -p 'test_*.py'
+          git diff --exit-code -- happ/artifacts
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Build and inspect custom geosite database
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/v2fly/domain-list-community.git "$RUNNER_TEMP/domain-list-community"
+          cp happ/data/momen-direct "$RUNNER_TEMP/domain-list-community/data/momen-direct"
+          mkdir -p dist verify
+          (
+            cd "$RUNNER_TEMP/domain-list-community"
+            go run ./ --outputdir="$GITHUB_WORKSPACE/dist" --outputname=momen-geosite.dat
+            go run ./cmd/datdump/main.go \
+              --inputdata="$GITHUB_WORKSPACE/dist/momen-geosite.dat" \
+              --outputdir="$GITHUB_WORKSPACE/verify" \
+              --exportlists=momen-direct
+          )
+          python happ/verify_geosite.py happ/data/momen-direct verify/momen-direct.yml
+          cp happ/artifacts/happ-routing.json dist/
+          cp happ/artifacts/happ-routing-link.txt dist/
+          cp happ/artifacts/manifest.json dist/
+          (cd dist && sha256sum momen-geosite.dat happ-routing.json happ-routing-link.txt manifest.json > SHA256SUMS)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: happ-routing
+          path: dist/
+
+      - name: Publish GitHub release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="happ-routing-$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
+          gh release create "$tag" dist/* \
+            --target "$GITHUB_SHA" \
+            --latest \
+            --title "HAPP routing $(date -u +%Y-%m-%d)" \
+            --notes "Reproducible HAPP routing profile and momen geosite database."

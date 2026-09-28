@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "policy": "Momen Selective Routing",
+  "direct_domain_count": 724,
+  "direct_site_rule_count": 8,
+  "direct_ip_rule_count": 7,
+  "proxy_site_rule_count": 16,
+  "proxy_ip_rule_count": 61,
+  "profile_sha256": "d3599163bcd48dfbf8220dcdafd38c99fe24746dee0e3481ee15565ef7efde7e",
+  "link_sha256": "510d56b978bb5a29be891fe6fcb51f179433b722f7fbc315f8a8f14eb97b41c8"
+}
