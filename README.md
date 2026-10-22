@@ -22,6 +22,38 @@ sh -c 'f=/tmp/momen-install.$$; wget -q -T 20 -O "$f" https://raw.githubusercont
 
 URL ветки `main` удобен для массовой установки, но является изменяемым. Для контролируемой волны развёртывания лучше заменить `main` в URL на заранее проверенный тег или commit SHA.
 
+## Переход с Podkop на Forkop
+
+Для OpenWrt 25.12.2 с `apk`, Podkop 0.7.22 и конфигурации, ранее подготовленной
+этим репозиторием через `install.sh --configure-all`, доступна автоматическая
+миграция на Forkop 1.0.5:
+
+```sh
+sh -c 'f=/tmp/momen-forkop.$$; wget -q -T 20 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/main/migrate-podkop-to-forkop.sh && ash "$f" --apply; rc=$?; rm -f "$f"; exit $rc'
+```
+
+Однострочник сам выполняет audit и план с `apk --simulate`, проверяет SHA-256
+закреплённых APK, создаёт backup на роутере, переносит DNS, proxy/VPN-секцию и
+724 правила DIRECT, запускает и проверяет Forkop. Пакеты Podkop удаляются только
+после успешной проверки Forkop. При ошибке после начала изменений запускается
+автоматический rollback; backup не удаляется.
+
+В тот же сценарий включена идемпотентная установка PPTP/GRE-поддержки:
+`kmod-gre`, `kmod-pptp`, `ppp-mod-pptp`, `kmod-nf-nathelper`,
+`kmod-nf-nathelper-extra` и диагностического `tcpdump`. Проверяются пакеты и
+модули ядра. Rollback сохраняет пакеты, которые присутствовали до миграции, и
+удаляет только добавленные самим скриптом.
+
+До запуска на важном роутере рекомендуется отдельно прочитать
+[подробную инструкцию](docs/podkop-to-forkop.md). Там приведены режимы только
+для аудита и плана, состав backup, проверки результата и явная команда rollback.
+
+Проекты:
+
+- [Podkop](https://github.com/itdoginfo/podkop);
+- [Forkop](https://github.com/ushan0v/forkop);
+- [momen](https://github.com/Konglomeratovich/momen).
+
 ## HAPP
 
 Каталог `happ/` содержит воспроизводимую сборку общей политики маршрутизации для
@@ -55,6 +87,7 @@ https://github.com/Konglomeratovich/momen/releases/latest/download/happ-routing-
 ```sh
 python happ/build.py
 python -m unittest discover -s happ -p 'test_*.py'
+ash tests/test-migrate-podkop-to-forkop.sh
 ```
 
 `momen-geosite.dat` строится официальным компилятором

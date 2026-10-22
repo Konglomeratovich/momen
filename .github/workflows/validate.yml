@@ -18,7 +18,54 @@ jobs:
         run: |
           docker run --rm \
             --mount "type=bind,src=$PWD,dst=/work,readonly" \
-            alpine:3.22 ash -n /work/install.sh
+            alpine:3.22 ash -c '
+              for file in \
+                /work/install.sh \
+                /work/migrate-podkop-to-forkop.sh \
+                /work/tests/test-migrate-podkop-to-forkop.sh \
+                /work/tests/test-upstream-forkop-migration.sh; do
+                  ash -n "$file" || exit 1
+              done
+            '
+
+      - name: Check shell scripts with ShellCheck
+        run: |
+          docker run --rm \
+            --mount "type=bind,src=$PWD,dst=/work,readonly" \
+            koalaman/shellcheck:v0.11.0 \
+              /work/migrate-podkop-to-forkop.sh \
+              /work/tests/test-migrate-podkop-to-forkop.sh \
+              /work/tests/test-upstream-forkop-migration.sh
+
+      - name: Test Podkop to Forkop orchestration
+        run: |
+          docker run --rm \
+            --mount "type=bind,src=$PWD,dst=/work,readonly" \
+            alpine:3.22 ash /work/tests/test-migrate-podkop-to-forkop.sh
+
+      - name: Test pinned upstream Forkop migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .test-assets
+          curl --fail --location --retry 3 \
+            --output .test-assets/forkop_1.0.5.apk \
+            https://github.com/ushan0v/forkop/releases/download/1.0.5/forkop_1.0.5.apk
+          echo '8d514180b3e27c73179c021f1a659b23aaf765003f9810659f7ad1ca34152439  .test-assets/forkop_1.0.5.apk' \
+            | sha256sum --check --strict
+          docker run --rm --network none \
+            --mount "type=bind,src=$PWD,dst=/work,readonly" \
+            openwrt/rootfs:x86_64-25.12.2 \
+            ash /work/tests/test-upstream-forkop-migration.sh /work/.test-assets/forkop_1.0.5.apk
+
+      - name: Simulate PPTP support installation on OpenWrt
+        run: |
+          docker run --rm openwrt/rootfs:x86_64-25.12.2 ash -c '
+            set -eu
+            packages="kmod-gre kmod-pptp ppp-mod-pptp kmod-nf-nathelper kmod-nf-nathelper-extra tcpdump"
+            apk update >/dev/null
+            apk add --simulate $packages >/dev/null
+          '
 
       - name: Verify pinned catalog
         shell: bash
