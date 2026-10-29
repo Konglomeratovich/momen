@@ -34,7 +34,8 @@ sh -c 'f=/tmp/momen-forkop.$$; wget -q -T 20 -O "$f" https://raw.githubuserconte
 
 Однострочник сам выполняет audit и план с `apk --simulate`, проверяет SHA-256
 закреплённых APK, создаёт backup на роутере, переносит DNS, proxy/VPN-секцию и
-724 правила DIRECT, запускает и проверяет Forkop. Пакеты Podkop удаляются только
+724 правила DIRECT, сохраняет установленный `sing-box` как движок Forkop,
+запускает и проверяет Forkop. Пакеты Podkop удаляются только
 после успешной проверки Forkop. При ошибке после начала изменений запускается
 автоматический rollback; backup не удаляется.
 

@@ -70,7 +70,7 @@ write_podkop_binary() {
 #!/bin/sh
 case "${1:-}" in
 restore_dnsmasq|dnsmasq_restore|reload) exit 0 ;;
-get_status) printf '{"running":1}\n' ;;
+get_status) printf '{\n  "running": 1,\n  "enabled": 1\n}\n' ;;
 *) exit 0 ;;
 esac
 EOF
@@ -86,14 +86,74 @@ if [ "${1:-}" = '-q' ]; then
     quiet=1
     shift
 fi
-[ "${1:-}" = 'get' ] || exit 2
-query="$2"
-package="${query%%.*}"
-rest="${query#*.}"
-section="${rest%%.*}"
-option=''
-[ "$rest" = "$section" ] || option="${rest#*.}"
-file="${MOMEN_ROOT:?}/etc/config/$package"
+command="${1:-}"
+shift || true
+
+uci_parts() {
+    query="$1"
+    package="${query%%.*}"
+    rest="${query#*.}"
+    section="${rest%%.*}"
+    option=''
+    [ "$rest" = "$section" ] || option="${rest#*.}"
+    file="${MOMEN_ROOT:?}/etc/config/$package"
+}
+
+if [ "$command" = 'set' ]; then
+    assignment="$1"
+    query="${assignment%%=*}"
+    value="${assignment#*=}"
+    uci_parts "$query"
+    [ -r "$file" ] || exit 1
+    [ -n "$option" ] || exit 2
+    tmp="$file.tmp"
+    awk -v wanted_section="$section" -v wanted_option="$option" -v wanted_value="$value" '
+function emit() {
+    print "\toption " wanted_option " \047" wanted_value "\047"
+    written=1
+}
+/^[[:space:]]*config[[:space:]]+/ {
+    if (active && !written) emit()
+    name=$3
+    gsub(/\047/, "", name)
+    active=(name == wanted_section)
+}
+active && /^[[:space:]]*(option|list)[[:space:]]+/ {
+    if ($2 == wanted_option) {
+        if (!written) emit()
+        next
+    }
+}
+{ print }
+END { if (active && !written) emit() }
+' "$file" > "$tmp" || exit 1
+    mv "$tmp" "$file"
+    exit 0
+fi
+
+if [ "$command" = 'delete' ]; then
+    query="$1"
+    uci_parts "$query"
+    [ -r "$file" ] || exit 1
+    [ -n "$option" ] || exit 2
+    tmp="$file.tmp"
+    awk -v wanted_section="$section" -v wanted_option="$option" '
+/^[[:space:]]*config[[:space:]]+/ {
+    name=$3
+    gsub(/\047/, "", name)
+    active=(name == wanted_section)
+}
+active && /^[[:space:]]*(option|list)[[:space:]]+/ && $2 == wanted_option { next }
+{ print }
+' "$file" > "$tmp" || exit 1
+    mv "$tmp" "$file"
+    exit 0
+fi
+
+[ "$command" != 'commit' ] || exit 0
+[ "$command" = 'get' ] || exit 2
+query="$1"
+uci_parts "$query"
 [ -r "$file" ] || exit 1
 awk -v wanted_section="$section" -v wanted_option="$option" '
 function unquote(value) {
@@ -205,7 +265,7 @@ install_forkop_files() {
 #!/bin/sh
 case "${1:-}" in
 reload|restore_dnsmasq|dnsmasq_restore) exit 0 ;;
-get_status) printf '{"running":1}\n' ;;
+get_status) printf '{\n  "running": 1,\n  "enabled": 1\n}\n' ;;
 *) exit 0 ;;
 esac
 EOS
@@ -272,6 +332,10 @@ add)
         podkop-*.apk) printf 'podkop-0.7.22-r1\n' > "$state/packages/podkop" ;;
         luci-app-podkop-*.apk) printf 'luci-app-podkop-0.7.22-r1\n' > "$state/packages/luci-app-podkop" ;;
         luci-i18n-podkop-ru-*.apk) printf 'luci-i18n-podkop-ru-0.7.22\n' > "$state/packages/luci-i18n-podkop-ru" ;;
+        sing-box)
+            printf 'sing-box-1.13.21-r1\n' > "$state/packages/sing-box"
+            : > "$state/sing-box.explicit"
+            ;;
         kmod-gre|kmod-pptp|ppp-mod-pptp|kmod-nf-nathelper|kmod-nf-nathelper-extra|tcpdump)
             printf '%s-1.0\n' "$arg" > "$state/packages/$arg"
             ;;
@@ -296,6 +360,7 @@ del)
         podkop)
             rm -f "$state/packages/podkop" "$root/usr/bin/podkop" "$root/etc/init.d/podkop"
             rm -rf "$root/usr/lib/podkop"
+            [ -e "$state/sing-box.explicit" ] || rm -f "$state/packages/sing-box"
             ;;
         luci-app-podkop|luci-i18n-podkop-ru|kmod-gre|kmod-pptp|ppp-mod-pptp|kmod-nf-nathelper|kmod-nf-nathelper-extra|tcpdump)
             rm -f "$state/packages/$arg"
@@ -338,6 +403,7 @@ EOF
     printf 'podkop-0.7.22-r1\n' > "$state/packages/podkop"
     printf 'luci-app-podkop-0.7.22-r1\n' > "$state/packages/luci-app-podkop"
     printf 'luci-i18n-podkop-ru-0.7.22\n' > "$state/packages/luci-i18n-podkop-ru"
+    printf 'sing-box-1.13.21-r1\n' > "$state/packages/sing-box"
 
     domains=''
     i=1
@@ -480,13 +546,24 @@ case_apply_and_repeat() {
     [ -e "$fixture/state/packages/tcpdump" ]
     [ ! -e "$fixture/state/packages/podkop" ]
     [ ! -e "$fixture/state/packages/luci-app-podkop" ]
+    [ -e "$fixture/state/packages/sing-box" ]
     [ -e "$fixture/state/forkop.enabled" ]
     [ -e "$fixture/state/forkop.running" ]
     assert_contains "$output" 'FORKOP_CONFIG_VALID=true'
+    assert_contains "$output" 'FORKOP_DIRECT_CATALOG_NORMALIZED=true'
+    assert_contains "$output" 'FORKOP_DIRECT_DOMAIN_COUNT=724'
+    assert_contains "$output" 'SING_BOX_PACKAGE_PRESERVED=true'
     assert_contains "$output" 'PODKOP_PACKAGES_REMOVED=true'
     assert_contains "$output" 'PPTP_KERNEL_MODULES_VALID=true'
     assert_contains "$output" 'APPLY_RESULT=migrated'
     assert_not_contains "$output" 'SECRET-MUST-NOT-LEAK'
+    [ "$(uci -q get forkop.DIRECT.domain | wc -w | tr -d '[:space:]')" = '724' ]
+    if uci -q get forkop.DIRECT.user_domains_text >/dev/null 2>&1; then
+        return 1
+    fi
+    if uci -q get forkop.DIRECT.local_domain_lists >/dev/null 2>&1; then
+        return 1
+    fi
     backup_dir="$(sed -n 's/^BACKUP_DIR=//p' "$output" | tail -n 1)"
     [ -r "$backup_dir/podkop-snapshot.tar.gz" ]
     [ -r "$backup_dir/packages/podkop-0.7.22-r1.apk" ]

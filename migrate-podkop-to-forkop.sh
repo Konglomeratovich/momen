@@ -164,6 +164,10 @@ service_running() {
     [ "$("$service_path" status 2>/dev/null || true)" = 'running' ]
 }
 
+forkop_status_running() {
+    printf '%s' "$1" | grep -Eq '"running"[[:space:]]*:[[:space:]]*1([[:space:],}]|$)'
+}
+
 uci_get() {
     uci -q get "$1" 2>/dev/null || true
 }
@@ -468,6 +472,7 @@ create_backup() {
     for backup_path in \
         /etc/config/podkop \
         /etc/config/dhcp \
+        /etc/apk/world \
         /etc/init.d/podkop \
         /etc/momen-r1-cyrillic-tlds.lst \
         /usr/bin/podkop \
@@ -563,6 +568,15 @@ install_forkop_packages() {
     info 'FORKOP_PACKAGES_INSTALLED=true'
 }
 
+preserve_sing_box_package() {
+    package_installed sing-box || fail 'Podkop sing-box package is missing before migration'
+    # Podkop owns sing-box as a dependency. Mark it explicitly in apk world so
+    # apk del podkop cannot autoremove Forkop's already validated runtime.
+    apk add sing-box </dev/null || fail 'failed to preserve sing-box for Forkop'
+    package_installed sing-box || fail 'sing-box package disappeared during preservation'
+    info 'SING_BOX_PACKAGE_PRESERVED=true'
+}
+
 migrate_configuration() {
     podkop_config="$(path /etc/config/podkop)"
     forkop_config="$(path /etc/config/forkop)"
@@ -580,6 +594,29 @@ migrate_configuration() {
     info 'CONFIG_MIGRATED=true'
 }
 
+normalize_forkop_direct_catalog() {
+    tld_file="$(path /etc/momen-r1-cyrillic-tlds.lst)"
+    direct_text="$(uci_get forkop.DIRECT.user_domains_text)"
+    direct_text_count="$(word_count "$direct_text")"
+    [ "$direct_text_count" -eq 720 ] ||
+        fail "Forkop legacy DIRECT text catalog count is $direct_text_count, expected 720"
+    [ -r "$tld_file" ] || fail 'Cyrillic TLD list is unavailable during Forkop normalization'
+    tld_domains="$(sed '/^[[:space:]]*$/d' "$tld_file" | tr '\n' ' ')"
+    tld_count="$(word_count "$tld_domains")"
+    [ "$tld_count" -eq 4 ] || fail "Forkop Cyrillic TLD catalog count is $tld_count, expected 4"
+
+    # Forkop 1.0.5 preserves these Podkop options during migration, but its
+    # runtime rejects local_domain_lists and does not consume user_domains_text.
+    # Move all 724 suffixes to Forkop's supported combined domain field.
+    uci set "forkop.DIRECT.domain=$direct_text $tld_domains"
+    uci -q delete forkop.DIRECT.user_domains_text || true
+    uci -q delete forkop.DIRECT.user_domain_list_type || true
+    uci -q delete forkop.DIRECT.local_domain_lists || true
+    uci commit forkop
+    info 'FORKOP_DIRECT_CATALOG_NORMALIZED=true'
+    info 'FORKOP_DIRECT_DOMAIN_COUNT=724'
+}
+
 validate_forkop_config() {
     forkop_config="$(path /etc/config/forkop)"
     tld_file="$(path /etc/momen-r1-cyrillic-tlds.lst)"
@@ -591,14 +628,18 @@ validate_forkop_config() {
         fail 'Forkop bootstrap DNS validation failed'
     [ "$(uci_get forkop.DIRECT)" = 'section' ] || fail 'Forkop DIRECT section is missing'
     [ "$(uci_get forkop.DIRECT.action)" = 'bypass' ] || fail 'Forkop DIRECT action must be bypass'
-    [ "$(uci_get forkop.DIRECT.user_domain_list_type)" = 'text' ] ||
-        fail 'Forkop DIRECT text list validation failed'
-    direct_text_count="$(word_count "$(uci_get forkop.DIRECT.user_domains_text)")"
-    [ "$direct_text_count" -eq 720 ] || fail "Forkop DIRECT text catalog count is $direct_text_count, expected 720"
-    uci_list_contains forkop.DIRECT.local_domain_lists '/etc/momen-r1-cyrillic-tlds.lst' ||
-        fail 'Forkop DIRECT section lost the Cyrillic TLD list'
+    [ -z "$(uci_get forkop.DIRECT.user_domains_text)" ] ||
+        fail 'Forkop DIRECT still contains the unsupported Podkop user_domains_text option'
+    [ -z "$(uci_get forkop.DIRECT.local_domain_lists)" ] ||
+        fail 'Forkop DIRECT still contains the unsupported local_domain_lists matcher'
+    direct_domain_count="$(word_count "$(uci_get forkop.DIRECT.domain)")"
+    [ "$direct_domain_count" -eq 724 ] || fail "Forkop DIRECT catalog count is $direct_domain_count, expected 724"
     tld_count="$(sed '/^[[:space:]]*$/d' "$tld_file" | wc -l | tr -d '[:space:]')"
     [ "$tld_count" -eq 4 ] || fail 'Forkop Cyrillic TLD catalog validation failed'
+    while IFS= read -r tld_domain; do
+        [ -z "$tld_domain" ] || uci_list_contains forkop.DIRECT.domain "$tld_domain" ||
+            fail "Forkop DIRECT catalog lost Cyrillic TLD: $tld_domain"
+    done < "$tld_file"
     [ "$(uci_get forkop.settings.download_lists_via_proxy)" = '1' ] ||
         fail 'Forkop list download routing validation failed'
     migrated_download_section="$(uci_get forkop.settings.download_lists_via_proxy_section)"
@@ -609,8 +650,7 @@ validate_forkop_config() {
     [ "$(uci_get "forkop.$DOWNLOAD_PROXY_SECTION.action")" = 'connection' ] ||
         fail 'Forkop proxy/VPN section was not converted to action=connection'
     info 'FORKOP_CONFIG_VALID=true'
-    info "DIRECT_TEXT_DOMAINS=$direct_text_count"
-    info "DIRECT_TLD_DOMAINS=$tld_count"
+    info "DIRECT_DOMAINS=$direct_domain_count"
 }
 
 activate_and_verify_forkop() {
@@ -628,7 +668,7 @@ activate_and_verify_forkop() {
         fail 'failed to start Forkop'
     "$forkop_bin" reload >/dev/null 2>&1 || fail 'Forkop reload failed'
     status_output="$($forkop_bin get_status 2>/dev/null || true)"
-    printf '%s' "$status_output" | grep -Fq '"running":1' || fail 'Forkop does not report running state'
+    forkop_status_running "$status_output" || fail 'Forkop does not report running state'
     if [ "$SKIP_RUNTIME_CHECKS" != '1' ]; then
         require_command nslookup
         nslookup ya.ru 127.0.0.1 >/dev/null 2>&1 || fail 'post-migration DNS lookup failed'
@@ -650,6 +690,7 @@ remove_podkop_packages() {
 verify_completed_migration() {
     package_installed forkop || fail 'forkop package is not installed'
     package_installed luci-app-forkop || fail 'luci-app-forkop package is not installed'
+    package_installed sing-box || fail 'sing-box package is not installed for Forkop'
     package_installed podkop && fail 'podkop package is still installed'
     package_installed luci-app-podkop && fail 'luci-app-podkop package is still installed'
     verify_pptp_support
@@ -664,7 +705,7 @@ verify_completed_migration() {
     [ -x "$forkop_bin" ] || fail 'Forkop executable is unavailable'
     if service_running "$forkop_init"; then
         status_output="$($forkop_bin get_status 2>/dev/null || true)"
-        printf '%s' "$status_output" | grep -Fq '"running":1' || fail 'Forkop backend status validation failed'
+        forkop_status_running "$status_output" || fail 'Forkop backend status validation failed'
         info 'FORKOP_SERVICE_RUNNING=true'
     else
         info 'FORKOP_SERVICE_RUNNING=false'
@@ -690,7 +731,9 @@ run_apply() {
     install_and_verify_pptp_support
     deactivate_podkop
     install_forkop_packages
+    preserve_sing_box_package
     migrate_configuration
+    normalize_forkop_direct_catalog
     validate_forkop_config
     activate_and_verify_forkop
     remove_podkop_packages
