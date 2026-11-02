@@ -22,6 +22,34 @@ sh -c 'f=/tmp/momen-install.$$; wget -q -T 20 -O "$f" https://raw.githubusercont
 
 URL ветки `main` удобен для массовой установки, но является изменяемым. Для контролируемой волны развёртывания лучше заменить `main` в URL на заранее проверенный тег или commit SHA.
 
+## Переход с Podkop на Tachyon
+
+Для точного исходного состояния OpenWrt `25.12.2` ARM64, Podkop `0.7.22-r1`
+и sing-box `1.12.17-r1` подготовлена контролируемая миграция на Tachyon `1.7.5`
+с закреплённым ядром `sing-box extended-compressed 1.14.3-extended-2.7.3`.
+
+Сначала безопасный `--plan` проверяет совместимость и место именно на текущем
+роутере, скачивает только закреплённые по SHA-256 компоненты и создаёт
+rollback-комплект в `/tmp/podkop-rollback`. Пакеты, UCI и службы не меняются:
+
+```sh
+sh -c 'f=/tmp/momen-tachyon-bootstrap.$$; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/main/scripts/bootstrap-podkop-to-tachyon.sh && echo "df7c1df8addb790994e57c7b242fd263371841da2558116beb77ac121de7da7c  $f" | sha256sum -c - && ash "$f" --plan'
+```
+
+После plan весь каталог `/tmp/podkop-rollback` необходимо скопировать с
+роутера на компьютер и там проверить `SHA256SUMS`. Только после создания этой
+внешней копии запускается Apply:
+
+```sh
+sh -c 'f=/tmp/momen-tachyon-bootstrap.$$; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/main/scripts/bootstrap-podkop-to-tachyon.sh && echo "df7c1df8addb790994e57c7b242fd263371841da2558116beb77ac121de7da7c  $f" | sha256sum -c - && m="$(sha256sum /tmp/podkop-rollback/SHA256SUMS | awk '\''{print $1}'\'')" && ash "$f" --apply --rollback-manifest-sha256 "$m" --confirm-backup COPIED-OFF-ROUTER --confirm MIGRATE-PODKOP-TO-TACHYON'
+```
+
+Apply заново выполняет readiness, plan и семантический preflight до первого
+изменения. При ошибке после начала транзакции запускается автоматический
+rollback. Подробный порядок, отдельная команда preflight, состав backup,
+health-check и ограничения приведены в
+[инструкции миграции Podkop → Tachyon](docs/podkop-to-tachyon.md).
+
 ## Переход с Podkop на Forkop
 
 Для OpenWrt 25.12.2 с `apk`, Podkop 0.7.22 и конфигурации, ранее подготовленной
