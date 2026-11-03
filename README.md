@@ -20,6 +20,32 @@ sh -c 'f=/tmp/momen-install.$$; wget -q -T 20 -O "$f" https://raw.githubusercont
 
 Контрольный снимок прежнего `Russia outside` проверяется в закрытом build-процессе Vless и не встраивается plaintext в публичный `install.sh`. На роутере целостность единого каталога подтверждается закреплённым SHA-256 и ожидаемым числом правил. Из 724 правил 720 сохраняются в текстовом поле LuCI, а четыре кириллические Punycode-зоны — в `/etc/momen-r1-cyrillic-tlds.lst`, поскольку валидатор LuCI Podkop 0.7.22 не принимает одноуровневые TLD.
 
+Для Tachyon и других клиентов опубликовано точное распакованное представление
+того же каталога:
+
+```text
+https://raw.githubusercontent.com/Konglomeratovich/momen/main/assets/r1.lst
+```
+
+`assets/r1.lst` содержит ровно 724 отсортированные уникальные строки и побайтно
+совпадает с результатом `gzip -dc assets/r1.gz`. Отчёт о проверке структуры,
+двух независимых DNS-прогонах и актуальных upstream-источниках приведён в
+[документе каталога](docs/r1-catalog.md). DNS-ответ сам по себе не используется
+для автоматического удаления домена.
+
+При переносе Tachyon на rule-set безопасная последовательность такая:
+
+1. создать снапшот конфигурации;
+2. добавить URL `r1.lst` в поле rule-set секции `DIRECT`, пока старые inline
+   записи ещё сохранены;
+3. применить настройки и проверить трассировщиком несколько DIRECT-маршрутов;
+4. удалить из inline-поля только 724 записи каталога, оставив персональные
+   исключения (например, `plex.tv`);
+5. снова применить настройки, проверить маршруты и сохранить новый снапшот.
+
+Такой порядок не оставляет промежутка без DIRECT-правил и позволяет откатиться
+встроенным снапшотом Tachyon.
+
 URL ветки `main` удобен для массовой установки, но является изменяемым. Для контролируемой волны развёртывания лучше заменить `main` в URL на заранее проверенный тег или commit SHA.
 
 ## Переход с Podkop на Tachyon
@@ -114,6 +140,8 @@ https://github.com/Konglomeratovich/momen/releases/latest/download/happ-routing-
 Локальная проверка:
 
 ```sh
+python tools/audit-r1.py --no-dns --write-lst assets/r1.lst
+python -m unittest tests.test-audit-r1 -v
 python happ/build.py
 python -m unittest discover -s happ -p 'test_*.py'
 ash tests/test-migrate-podkop-to-forkop.sh

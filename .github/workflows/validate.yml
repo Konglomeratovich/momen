@@ -78,6 +78,13 @@ jobs:
           test "$actual_hash" = "$expected_hash"
           test "$actual_count" = "$expected_count"
           test "$actual_count" = '724'
+          gzip -dc assets/r1.gz > /tmp/r1-from-gzip.lst
+          cmp --silent /tmp/r1-from-gzip.lst assets/r1.lst
+          test "$(wc -l < assets/r1.lst | tr -d '[:space:]')" = '724'
+          test "$(sort -u assets/r1.lst | wc -l | tr -d '[:space:]')" = '724'
+
+      - name: Test catalog audit tool
+        run: python -m unittest tests.test-audit-r1 -v
 
       - name: Verify safety controls
         shell: bash
