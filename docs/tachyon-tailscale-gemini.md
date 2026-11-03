@@ -43,6 +43,45 @@ endpoint sing-box со своим каталогом состояния, `exit_n
 `tailscaled`: используется поддержка `with_tailscale` активного
 `tachyon-core`.
 
+## Однострочники из GitHub
+
+Ручное копирование скрипта не требуется. Команды ниже загружают опубликованный
+скрипт по неизменяемому commit, проверяют SHA-256 и удаляют временный файл.
+Они выполняются на OpenWrt. Один раз задайте Tailscale IPv4 своего exit node:
+
+```sh
+TS_EXIT_NODE='<EXIT_NODE_TAILSCALE_IPV4>'
+```
+
+Plan — совместимость и ресурсы без изменения конфигурации:
+
+```sh
+sh -c 'umask 077; f=$(mktemp /tmp/momen-tailscale.XXXXXX) || exit 1; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/aee3490e32f0f554a82de54bbab9da0b24c245b1/scripts/configure-tachyon-tailscale-gemini.sh && echo "dda3611149d54bd85ec1b709e468c2f90a9ec9e2a4a75d6edc0a6a8070c03110  $f" | sha256sum -c - && ash "$f" --plan --exit-node "$1"' sh "$TS_EXIT_NODE"
+```
+
+Первичный Apply — после Plan и создания `/tmp/tailscale-auth.key` скрытым
+вводом из раздела Apply ниже. Выполняет reload служб:
+
+```sh
+sh -c 'umask 077; f=$(mktemp /tmp/momen-tailscale.XXXXXX) || exit 1; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/aee3490e32f0f554a82de54bbab9da0b24c245b1/scripts/configure-tachyon-tailscale-gemini.sh && echo "dda3611149d54bd85ec1b709e468c2f90a9ec9e2a4a75d6edc0a6a8070c03110  $f" | sha256sum -c - && ash "$f" --apply --exit-node "$1" --auth-key-file /tmp/tailscale-auth.key --confirm CONFIGURE-GEMINI-TAILSCALE' sh "$TS_EXIT_NODE"
+```
+
+Повторный Apply с сохранённой регистрацией, без нового ключа. Внимание:
+пересоздаёт базовые правила секции и сбрасывает ручные дополнения, как описано ниже:
+
+```sh
+sh -c 'umask 077; f=$(mktemp /tmp/momen-tailscale.XXXXXX) || exit 1; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/aee3490e32f0f554a82de54bbab9da0b24c245b1/scripts/configure-tachyon-tailscale-gemini.sh && echo "dda3611149d54bd85ec1b709e468c2f90a9ec9e2a4a75d6edc0a6a8070c03110  $f" | sha256sum -c - && ash "$f" --apply --exit-node "$1" --confirm CONFIGURE-GEMINI-TAILSCALE' sh "$TS_EXIT_NODE"
+```
+
+Проверка текущего состояния — для обычной диагностики используйте её:
+
+```sh
+sh -c 'umask 077; f=$(mktemp /tmp/momen-tailscale.XXXXXX) || exit 1; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/aee3490e32f0f554a82de54bbab9da0b24c245b1/scripts/configure-tachyon-tailscale-gemini.sh && echo "dda3611149d54bd85ec1b709e468c2f90a9ec9e2a4a75d6edc0a6a8070c03110  $f" | sha256sum -c - && ash "$f" --verify' sh "$TS_EXIT_NODE"
+```
+
+Загрузка скрипта требует работающего HTTPS-доступа к GitHub. Эти команды
+не устанавливают native Tailscale и не обновляют ядро.
+
 ## Plan
 
 Для закреплённого ядра передавайте Tailscale IPv4 exit node из `100.64.0.0/10`.
