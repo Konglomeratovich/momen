@@ -1,5 +1,14 @@
 # momen
 
+## Gemini через Tailscale на Tachyon 1.7.11
+
+[Проверяемая инструкция](docs/tachyon-tailscale-gemini.md): userspace Tailscale
+через существующий exit node, plan/apply/verify, backup и rollback. Скрипт
+закреплён на OpenWrt 25.12.2 и sing-box extended 1.14.3-extended-2.7.3;
+exit node задаётся его Tailscale IPv4. В инструкции описаны compatibility fix
+planner 1.7.11 и итоговые домены Google AI/авторизации. Сначала прочитайте
+ограничения и выполните `--plan`.
+
 Публичный канал доставки проверенного установщика DIRECT-политики для Podkop.
 
 ## Quick Start
