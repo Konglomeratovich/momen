@@ -60,7 +60,7 @@ URL ветки `main` удобен для массовой установки, �
 ## Переход с Podkop на Tachyon
 
 Для точного исходного состояния OpenWrt `25.12.2` ARM64, Podkop `0.7.22-r1`
-и sing-box `1.12.17-r1` подготовлена контролируемая миграция на Tachyon `1.7.5`
+и sing-box `1.12.17-r1` подготовлена контролируемая миграция на Tachyon `1.7.11`
 с закреплённым ядром `sing-box extended-compressed 1.14.3-extended-2.7.3`.
 
 Сначала безопасный `--plan` проверяет совместимость и место именно на текущем
@@ -68,7 +68,7 @@ URL ветки `main` удобен для массовой установки, �
 rollback-комплект в `/tmp/podkop-rollback`. Пакеты, UCI и службы не меняются:
 
 ```sh
-sh -c 'f=/tmp/momen-tachyon-bootstrap.$$; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/main/scripts/bootstrap-podkop-to-tachyon.sh && echo "df7c1df8addb790994e57c7b242fd263371841da2558116beb77ac121de7da7c  $f" | sha256sum -c - && ash "$f" --plan'
+sh -c 'f=/tmp/momen-tachyon-bootstrap.$$; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/main/scripts/bootstrap-podkop-to-tachyon.sh && echo "857d9cb58ebaa3c7e2c6ab75d7b9cf8338b08ba06246cee6093d7d766579bd79  $f" | sha256sum -c - && ash "$f" --plan'
 ```
 
 После plan весь каталог `/tmp/podkop-rollback` необходимо скопировать с
@@ -76,7 +76,7 @@ sh -c 'f=/tmp/momen-tachyon-bootstrap.$$; trap '\''rm -f "$f"'\'' EXIT; wget -q 
 внешней копии запускается Apply:
 
 ```sh
-sh -c 'f=/tmp/momen-tachyon-bootstrap.$$; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/main/scripts/bootstrap-podkop-to-tachyon.sh && echo "df7c1df8addb790994e57c7b242fd263371841da2558116beb77ac121de7da7c  $f" | sha256sum -c - && m="$(sha256sum /tmp/podkop-rollback/SHA256SUMS | awk '\''{print $1}'\'')" && ash "$f" --apply --rollback-manifest-sha256 "$m" --confirm-backup COPIED-OFF-ROUTER --confirm MIGRATE-PODKOP-TO-TACHYON'
+sh -c 'f=/tmp/momen-tachyon-bootstrap.$$; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/main/scripts/bootstrap-podkop-to-tachyon.sh && echo "857d9cb58ebaa3c7e2c6ab75d7b9cf8338b08ba06246cee6093d7d766579bd79  $f" | sha256sum -c - && m="$(sha256sum /tmp/podkop-rollback/SHA256SUMS | awk '\''{print $1}'\'')" && ash "$f" --apply --rollback-manifest-sha256 "$m" --confirm-backup COPIED-OFF-ROUTER --confirm MIGRATE-PODKOP-TO-TACHYON'
 ```
 
 Apply заново выполняет readiness, plan и семантический preflight до первого

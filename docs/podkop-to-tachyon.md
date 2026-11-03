@@ -14,9 +14,28 @@
 - `sing-box 1.12.17-r1`;
 - отсутствуют частично установленные пакеты Tachyon.
 
-Устанавливаются Tachyon `1.7.5` и закреплённый
+Устанавливаются Tachyon `1.7.11` и закреплённый
 `sing-box extended-compressed 1.14.3-extended-2.7.3`. Иная версия, архитектура
 или смешанное package-state останавливают процесс до изменений.
+
+## Итоговая DIRECT-политика
+
+Локально для 1.7.11 проверены: syntax/ShellCheck, readiness 11/11,
+success/rollback fixtures 12/12 и 11/11, bootstrap 15/15, настоящая установка
+APK и extended-compressed в OpenWrt 25.12.2 x86_64 контейнере. Offline preflight
+с реальным генератором/ядром сохраняет полный каталог 724 и ручное дополнение,
+добавляя отсутствующий Plex (726 итоговых правил). ARM64 startup/forwarding
+и Remote Apply 1.7.11 этим не подтверждены; службы в transaction fixtures mock.
+
+Вместо 724 встроенных доменов создаётся ссылка `domain_ip_lists` на
+`https://raw.githubusercontent.com/Konglomeratovich/momen/main/assets/r1.lst`.
+Каталог проверяется по SHA-256 до изменения пакетов. Локальные дополнения
+сохраняются отдельно. `plex.tv` добавляется обязательно, даже если его нет
+в исходном Podkop. Совокупность каталога и исключений покрывает все исходные
+правила; дополнительные ручные домены не отбрасываются.
+
+DNS, прокси и исключённые устройства берутся с мигрируемого роутера.
+Tailscale и личные Mieru-подключения не копируются из чужой конфигурации.
 
 ## Почему используются две команды
 
@@ -36,7 +55,7 @@
 ## Шаг 1. Plan и rollback-комплект
 
 ```sh
-sh -c 'f=/tmp/momen-tachyon-bootstrap.$$; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/main/scripts/bootstrap-podkop-to-tachyon.sh && echo "df7c1df8addb790994e57c7b242fd263371841da2558116beb77ac121de7da7c  $f" | sha256sum -c - && ash "$f" --plan'
+sh -c 'f=/tmp/momen-tachyon-bootstrap.$$; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/main/scripts/bootstrap-podkop-to-tachyon.sh && echo "857d9cb58ebaa3c7e2c6ab75d7b9cf8338b08ba06246cee6093d7d766579bd79  $f" | sha256sum -c - && ash "$f" --plan'
 ```
 
 Plan:
@@ -80,7 +99,7 @@ UCI, запускает штатное преобразование Tachyon, с�
 проверяет сгенерированный конфиг точным будущим ядром. Система не изменяется.
 
 ```sh
-sh -c 'f=/tmp/momen-tachyon-bootstrap.$$; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/main/scripts/bootstrap-podkop-to-tachyon.sh && echo "df7c1df8addb790994e57c7b242fd263371841da2558116beb77ac121de7da7c  $f" | sha256sum -c - && m="$(sha256sum /tmp/podkop-rollback/SHA256SUMS | awk '\''{print $1}'\'')" && ash "$f" --preflight --rollback-manifest-sha256 "$m" --confirm-backup COPIED-OFF-ROUTER'
+sh -c 'f=/tmp/momen-tachyon-bootstrap.$$; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/main/scripts/bootstrap-podkop-to-tachyon.sh && echo "857d9cb58ebaa3c7e2c6ab75d7b9cf8338b08ba06246cee6093d7d766579bd79  $f" | sha256sum -c - && m="$(sha256sum /tmp/podkop-rollback/SHA256SUMS | awk '\''{print $1}'\'')" && ash "$f" --preflight --rollback-manifest-sha256 "$m" --confirm-backup COPIED-OFF-ROUTER'
 ```
 
 Ожидаемый финальный маркер: `BOOTSTRAP_PREFLIGHT_OK=true`.
@@ -90,7 +109,7 @@ sh -c 'f=/tmp/momen-tachyon-bootstrap.$$; trap '\''rm -f "$f"'\'' EXIT; wget -q 
 Запускайте только после успешного plan, внешней копии и проверки preflight:
 
 ```sh
-sh -c 'f=/tmp/momen-tachyon-bootstrap.$$; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/main/scripts/bootstrap-podkop-to-tachyon.sh && echo "df7c1df8addb790994e57c7b242fd263371841da2558116beb77ac121de7da7c  $f" | sha256sum -c - && m="$(sha256sum /tmp/podkop-rollback/SHA256SUMS | awk '\''{print $1}'\'')" && ash "$f" --apply --rollback-manifest-sha256 "$m" --confirm-backup COPIED-OFF-ROUTER --confirm MIGRATE-PODKOP-TO-TACHYON'
+sh -c 'f=/tmp/momen-tachyon-bootstrap.$$; trap '\''rm -f "$f"'\'' EXIT; wget -q -T 30 -O "$f" https://raw.githubusercontent.com/Konglomeratovich/momen/main/scripts/bootstrap-podkop-to-tachyon.sh && echo "857d9cb58ebaa3c7e2c6ab75d7b9cf8338b08ba06246cee6093d7d766579bd79  $f" | sha256sum -c - && m="$(sha256sum /tmp/podkop-rollback/SHA256SUMS | awk '\''{print $1}'\'')" && ash "$f" --apply --rollback-manifest-sha256 "$m" --confirm-backup COPIED-OFF-ROUTER --confirm MIGRATE-PODKOP-TO-TACHYON'
 ```
 
 Apply повторяет readiness, plan и preflight. Затем он:
@@ -124,9 +143,9 @@ IDEMPOTENT_HEALTHCHECK_OK=true
 ## Закреплённые SHA-256
 
 ```text
-df7c1df8addb790994e57c7b242fd263371841da2558116beb77ac121de7da7c  scripts/bootstrap-podkop-to-tachyon.sh
-fad5f1081fc7bb38f12cc7d79ed2b4cef8f08699cee16bade00f73cb9dd7411b  scripts/audit-tachyon-readiness.sh
-12ed3c902dc572a98fe7964e44d9ccfc5e14ce06bf5ca8f1ab3c3d71ebb50fd3  scripts/migrate-podkop-to-tachyon.sh
+857d9cb58ebaa3c7e2c6ab75d7b9cf8338b08ba06246cee6093d7d766579bd79  scripts/bootstrap-podkop-to-tachyon.sh
+172249a0b2f7a1fad639c5d2c551cdeca8638bbfd368a79f06a0cccb68ad3d45  scripts/audit-tachyon-readiness.sh
+511737e5f1315fd6f7c764cf4486b7813ef4f330e4244bb2d4bc5dc0c5efb197  scripts/migrate-podkop-to-tachyon.sh
 ```
 
 URL ветки `main` изменяемый. Для контролируемой волны развёртывания вместо

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-# Public entry point for the guarded Podkop 0.7.22 -> Tachyon 1.7.5
+# Public entry point for the guarded Podkop 0.7.22 -> Tachyon 1.7.11
 # transaction. It intentionally separates backup preparation from Apply so an
 # operator can copy the rollback bundle off the router before packages change.
 
@@ -21,8 +21,8 @@ ROLLBACK_ASSET_DIR="${TACHYON_ROLLBACK_ASSET_DIR:-}"
 
 AUDIT_NAME=audit-tachyon-readiness.sh
 MIGRATOR_NAME=migrate-podkop-to-tachyon.sh
-AUDIT_SHA256=fad5f1081fc7bb38f12cc7d79ed2b4cef8f08699cee16bade00f73cb9dd7411b
-MIGRATOR_SHA256=12ed3c902dc572a98fe7964e44d9ccfc5e14ce06bf5ca8f1ab3c3d71ebb50fd3
+AUDIT_SHA256=172249a0b2f7a1fad639c5d2c551cdeca8638bbfd368a79f06a0cccb68ad3d45
+MIGRATOR_SHA256=511737e5f1315fd6f7c764cf4486b7813ef4f330e4244bb2d4bc5dc0c5efb197
 
 PODKOP_APK=podkop-0.7.22-r1.apk
 PODKOP_APK_SHA256=5abf1422f73819d0834fd3ca81ccd55aaa7631e8665dc03e8c0d629811302e27

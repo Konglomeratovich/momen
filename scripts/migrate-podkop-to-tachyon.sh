@@ -11,20 +11,22 @@ set -u
 EXPECTED_RELEASE="25.12.2"
 SUPPORTED_ARCH_PREFIX="aarch64"
 
-TACHYON_TAG="1.7.5"
-TACHYON_INSTALLER_URL="https://raw.githubusercontent.com/Dushnilin/tachyon/862968c69fca9d16c22843de6a565212a8169e3c/install.sh"
-TACHYON_INSTALLER_SHA256="${TACHYON_INSTALLER_SHA256:-56c53df74ebd31a851c1296e65ebbf59529fcf5aaf9efeaed7f4f2fe20c8d7f9}"
+TACHYON_TAG="1.7.11"
+TACHYON_INSTALLER_URL="https://raw.githubusercontent.com/Dushnilin/tachyon/7a8843fbf9475374ce5fffce354b060fcb33b431/install.sh"
+TACHYON_INSTALLER_SHA256="${TACHYON_INSTALLER_SHA256:-57e780a87b6cdd1064d982d94093ae7c195d9a0fef1d2771410b5086bac20949}"
 INSTALLER_FIXTURE="${TACHYON_INSTALLER_FIXTURE:-}"
-TACHYON_BACKEND_URL="https://github.com/Dushnilin/tachyon/releases/download/1.7.5/tachyon_1.7.5.apk"
-TACHYON_BACKEND_SHA256="376b2b4f91cce9abfe8b82dc5936dfe8bde69df63f5e9abcb73fffc99449c53e"
+TACHYON_BACKEND_URL="https://github.com/Dushnilin/tachyon/releases/download/1.7.11/tachyon_1.7.11.apk"
+TACHYON_BACKEND_SHA256="5b0b7a8f873997fc4b1b86a63a20dcc058854ee6abb597e0c83040d75093c9a1"
 ENGINE_TAG="v1.14.3-extended-2.7.3"
 ENGINE_ARCHIVE_URL="https://github.com/shtorm-7/sing-box-extended/releases/download/${ENGINE_TAG}/sing-box-1.14.3-extended-2.7.3-linux-arm64-compressed.tar.gz"
 ENGINE_ARCHIVE_SHA256="21d90e197a2523b74016fda0f770ae874eeb4e1aca99d3956b160f41380306eb"
 EXPECTED_DIRECT_TOTAL=725
 EXPECTED_DIRECT_EXTRA=plex.tv
+CATALOG_URL="https://raw.githubusercontent.com/Konglomeratovich/momen/main/assets/r1.lst"
+CATALOG_SHA256=aaa17d6a89fdd62211b10e7b7fd9cefe62e9169c6cf550a92983560bf89bf2ee
 
 AUDIT_SCRIPT="${TACHYON_AUDIT_SCRIPT:-/tmp/audit-tachyon-readiness.sh}"
-AUDIT_SHA256="${TACHYON_AUDIT_SHA256:-fad5f1081fc7bb38f12cc7d79ed2b4cef8f08699cee16bade00f73cb9dd7411b}"
+AUDIT_SHA256="${TACHYON_AUDIT_SHA256:-172249a0b2f7a1fad639c5d2c551cdeca8638bbfd368a79f06a0cccb68ad3d45}"
 ROLLBACK_DIR="${TACHYON_ROLLBACK_DIR:-/tmp/podkop-rollback}"
 WORK_ROOT="${TACHYON_WORK_ROOT:-/tmp}"
 FETCH_CMD=""
@@ -32,6 +34,7 @@ MODE=""
 WORK_DIR=""
 SNAPSHOT_FILE=""
 NORMALIZED_CONFIG_FILE=""
+FINAL_CONFIG_FILE=""
 APPLY_STARTED=0
 ROLLBACK_ATTEMPTED=0
 SEMANTIC_FIXTURE="${TACHYON_SEMANTIC_PREFLIGHT_FIXTURE:-}"
@@ -180,6 +183,8 @@ REBOOT_ALLOWED=false
 SEMANTIC_PREFLIGHT_REQUIRED=true
 EXPECTED_DIRECT_RULES=$EXPECTED_DIRECT_TOTAL
 REQUIRED_EXTRA_RULE=$EXPECTED_DIRECT_EXTRA
+DIRECT_LAYOUT=external-r1-plus-local-exceptions
+PLEX_DIRECT_MANDATORY=true
 EOF
 }
 
@@ -281,6 +286,69 @@ print("DIRECT_EXPECTED_UNIQUE=" + expected_count + "\n");
 print("DIRECT_MIGRATED_UNIQUE=" + actual_count + "\n");
 print("DIRECT_REQUIRED_EXTRA_PRESERVED=true\n");
 EOF_UCODE
+    cat >"$WORK_DIR/prepare-direct-ruleset.uc" <<'EOF_UCODE'
+let fs = require("fs");
+let uci = require("uci");
+let cfg = json(fs.readfile(ARGV[0]));
+let catalog = {};
+for (let line in split(fs.readfile(ARGV[1]), "\n")) {
+    line = trim(line);
+    if (line != "") catalog[line] = true;
+}
+if (length(keys(catalog)) != 724) exit(10);
+let original = {};
+for (let line in split(fs.readfile(ARGV[2]), "\n")) {
+    line = trim(line);
+    if (line != "") original[line] = true;
+}
+let extras = [];
+for (let item in original) if (!catalog[item]) push(extras, item);
+let refs = {};
+let direct = null;
+for (let sec in (cfg.section || []))
+    if (sec[".name"] == "DIRECT") direct = sec;
+if (!direct || direct.action != "bypass") exit(11);
+for (let key in ["condition_refs", "conditions"]) {
+    let v = direct[key] || [];
+    if (type(v) != "array") v = split(v, /[ \t\r\n]+/);
+    for (let ref in v) refs[ref] = true;
+}
+function reshape(sec) {
+    for (let key in ["domain", "domain_suffix", "user_domains", "user_domains_text"])
+        delete sec[key];
+    sec.domain_ip_lists = [ARGV[3]];
+    if (length(extras)) sec.domain = extras;
+}
+reshape(direct);
+for (let cond in (cfg.condition || [])) if (refs[cond[".name"]]) reshape(cond);
+// Prove membership of every original entry in catalog + local exceptions.
+let effective = {};
+for (let item in catalog) effective[item] = true;
+for (let item in extras) effective[item] = true;
+for (let item in original) if (!effective[item]) exit(12);
+let c = uci.cursor(ARGV[4]);
+function save(sec, typ) {
+    let name = sec[".name"] || "settings";
+    c.set("tachyon", name, typ);
+    for (let key, value in sec) {
+        if (substr(key, 0, 1) == "." || value == null) continue;
+        if (!c.set("tachyon", name, key, value)) exit(13);
+    }
+}
+for (let typ, sections in cfg) {
+    if (typ == "settings" && type(sections) == "object") save(sections, typ);
+    else if (type(sections) == "array") for (let sec in sections) save(sec, typ);
+}
+if (!c.commit("tachyon")) exit(14);
+if (c.get("tachyon", "DIRECT", "domain_ip_lists")[0] != ARGV[3]) exit(15);
+let stored = c.get("tachyon", "DIRECT", "domain") || [];
+if (type(stored) != "array") stored = [stored];
+for (let item in extras) if (index(stored, item) < 0) exit(16);
+fs.writefile(ARGV[0], sprintf("%J", cfg));
+print("DIRECT_RULESET_CATALOG_UNIQUE=724\n");
+print("DIRECT_LOCAL_EXCEPTIONS=" + length(extras) + "\n");
+print("DIRECT_SOURCE_RULES_COVERED=" + length(keys(original)) + "\n");
+EOF_UCODE
     chmod 0700 "$WORK_DIR"/*.uc
 }
 
@@ -299,10 +367,17 @@ normalize_direct_config() {
         awk '{ for (i = 1; i <= NF; i++) print $i }' "$list_path" >>"$expected_file"
     done
 
+    # Plex is mandatory in the target policy, even if absent from Podkop.
+    if ! grep -Fxq "$EXPECTED_DIRECT_EXTRA" "$expected_file"; then
+        printf '%s\n' "$EXPECTED_DIRECT_EXTRA" >>"$expected_file"
+        log 'PLEX_DIRECT_ADDED=true'
+    fi
+
     total="$(wc -l <"$expected_file" | tr -d '[:space:]')"
     unique="$(sort -u "$expected_file" | wc -l | tr -d '[:space:]')"
-    [ "$total" -eq "$EXPECTED_DIRECT_TOTAL" ] || { fail "DIRECT rule count is $total, expected $EXPECTED_DIRECT_TOTAL"; return 1; }
-    [ "$unique" -eq "$EXPECTED_DIRECT_TOTAL" ] || { fail "DIRECT unique rule count is $unique, expected $EXPECTED_DIRECT_TOTAL"; return 1; }
+    [ "$unique" -ge "$EXPECTED_DIRECT_TOTAL" ] || { fail "DIRECT unique rule count is $unique, expected at least $EXPECTED_DIRECT_TOTAL"; return 1; }
+    [ "$total" -eq "$unique" ] || { fail 'duplicate DIRECT source rules require review'; return 1; }
+    EXPECTED_DIRECT_TOTAL="$unique"
     grep -Fxq "$EXPECTED_DIRECT_EXTRA" "$expected_file" || { fail 'required manually-added DIRECT rule is missing'; return 1; }
 
     combined="$(cat "$expected_file")"
@@ -326,7 +401,7 @@ semantic_preflight() {
         return 0
     fi
 
-    backend="$WORK_DIR/tachyon_1.7.5.apk"
+    backend="$WORK_DIR/tachyon_1.7.11.apk"
     engine_archive="$WORK_DIR/sing-box-extended-compressed-arm64.tar.gz"
     fetch_file "$TACHYON_BACKEND_URL" "$backend" || { fail 'could not download the pinned Tachyon backend'; return 1; }
     [ "$(sha256_value "$backend")" = "$TACHYON_BACKEND_SHA256" ] || { fail 'Tachyon backend SHA-256 mismatch'; return 1; }
@@ -351,6 +426,14 @@ semantic_preflight() {
     ucode -L "$lib" "$lib/config/migration.uc" migrate-fixture "$stage/source-model.json" podkop >"$stage/migration-result.json" 2>"$stage/migration.err" || { fail 'Tachyon rejected the private Podkop migration'; return 1; }
     ucode "$WORK_DIR/extract-migrated-config.uc" "$stage/migration-result.json" "$stage/migrated.json" || { fail 'could not extract the migrated model'; return 1; }
     ucode "$WORK_DIR/validate-direct-catalog.uc" "$stage/migrated.json" "$stage/expected-direct" "$EXPECTED_DIRECT_EXTRA" || { fail 'migrated DIRECT catalog differs from all 725 source rules'; return 1; }
+    fetch_file "$CATALOG_URL" "$stage/r1.lst" || { fail 'could not stage the DIRECT catalog'; return 1; }
+    [ "$(sha256_value "$stage/r1.lst")" = "$CATALOG_SHA256" ] || { fail 'DIRECT catalog hash mismatch'; return 1; }
+    mkdir -p "$stage/final-config" || return 1
+    : >"$stage/final-config/tachyon"
+    ucode "$WORK_DIR/prepare-direct-ruleset.uc" "$stage/migrated.json" "$stage/r1.lst" \
+        "$stage/expected-direct" "$CATALOG_URL" "$stage/final-config" || { fail 'DIRECT ruleset conversion failed'; return 1; }
+    FINAL_CONFIG_FILE="$stage/final-config/tachyon"
+    chmod 0600 "$FINAL_CONFIG_FILE" || return 1
 
     member="$(tar -tzf "$engine_archive" 2>/dev/null | awk -F/ '$NF == "sing-box" { print; exit }')"
     [ -n "$member" ] || { fail 'pinned engine archive has no sing-box binary'; return 1; }
@@ -463,7 +546,7 @@ set_service_intent() {
 clear_stale_tachyon_autostart() {
     # A previous failed/rolled-back install can leave either the package hook's
     # restart marker or an rc.d link behind even though the Tachyon package is
-    # absent. Tachyon 1.7.5 postinst interprets either as authority to start.
+    # absent. Tachyon 1.7.11 postinst interprets either as authority to start.
     # That start can auto-install tachyon-core while apk is still removing the
     # legacy sing-box package, racing the pinned component transaction.
     ! is_installed tachyon || { fail 'cannot clear pre-install Tachyon state after the package is installed'; return 1; }
@@ -570,6 +653,10 @@ postcheck() {
     ! is_installed podkop || fail 'legacy Podkop package is still installed' || return 1
     ! is_installed luci-i18n-podkop-ru || fail 'legacy Podkop translation is still installed' || return 1
     [ -s /etc/config/tachyon ] || fail 'migrated /etc/config/tachyon is missing' || return 1
+    if [ -n "$FINAL_CONFIG_FILE" ]; then
+        uci -q get tachyon.DIRECT.domain_ip_lists | grep -Fxq "$CATALOG_URL" || { fail 'DIRECT catalog reference is missing'; return 1; }
+        uci -q get tachyon.DIRECT.domain | tr ' ' '\n' | grep -Fxq plex.tv || { fail 'mandatory Plex DIRECT rule is missing'; return 1; }
+    fi
     [ -x /usr/bin/tachyon-core ] || fail 'pinned engine binary is missing' || return 1
     [ -L /usr/bin/sing-box ] || fail 'legacy sing-box compatibility link is missing' || return 1
     [ "$(readlink /usr/bin/sing-box 2>/dev/null)" = /usr/bin/tachyon-core ] || fail 'sing-box link has an unexpected target' || return 1
@@ -590,7 +677,7 @@ postcheck() {
 apply_transaction() {
     detect_fetcher || return 1
     create_snapshot || { fail 'could not create and validate the fresh tmpfs snapshot'; return 1; }
-    installer="$WORK_DIR/tachyon-install-1.7.5.sh"
+    installer="$WORK_DIR/tachyon-install-1.7.11.sh"
     if [ -n "$INSTALLER_FIXTURE" ]; then
         [ "${TACHYON_TEST_MODE:-0}" = 1 ] || { fail 'installer fixture is allowed only with TACHYON_TEST_MODE=1'; return 1; }
         cp "$INSTALLER_FIXTURE" "$installer" || return 1
@@ -606,7 +693,7 @@ apply_transaction() {
     cp "$NORMALIZED_CONFIG_FILE" /etc/config/podkop || { fail 'could not install the preflighted normalized Podkop config'; return 1; }
     chmod 0600 /etc/config/podkop || return 1
 
-    # Upstream 1.7.5 does not include the predecessor translation in its legacy
+    # Upstream 1.7.11 does not include the predecessor translation in its legacy
     # cleanup list. Removing it first prevents it retaining Podkop through
     # dependencies; rollback has the exact APK required to restore it.
     apk del luci-i18n-podkop-ru >/dev/null 2>&1 || { fail 'could not release the Podkop translation package'; return 1; }
@@ -614,6 +701,10 @@ apply_transaction() {
     LANG=ru_RU.UTF-8 ash "$installer" --yes --tag "$TACHYON_TAG" --engine none --no-zram || { fail 'Tachyon package/config migration failed'; return 1; }
     ! is_installed tachyon-core || { fail 'unpinned tachyon-core was installed before the pinned engine'; return 1; }
     quiesce_for_pinned_engine || return 1
+    if [ -n "$FINAL_CONFIG_FILE" ]; then
+        cp "$FINAL_CONFIG_FILE" /etc/config/tachyon || return 1
+        chmod 0600 /etc/config/tachyon || return 1
+    fi
     /usr/bin/tachyon component_action sing-box-extended-compressed install_version "$ENGINE_TAG" || { fail 'pinned extended-compressed installation failed'; return 1; }
     uci set tachyon.settings.engine='sing-box' || return 1
     uci commit tachyon || return 1
